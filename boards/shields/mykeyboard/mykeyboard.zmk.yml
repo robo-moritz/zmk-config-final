@@ -1,0 +1,8 @@
+file_format: "1"
+id: mykeyboard
+name: MyKeyboard
+type: shield
+url: https://github.com/
+requires: [pro_micro]
+features:
+  - keys
