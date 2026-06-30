@@ -1,0 +1,5 @@
+board: nice_nano
+variant: zmk
+
+qualifiers:
+  - zmk
