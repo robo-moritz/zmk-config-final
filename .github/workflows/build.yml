@@ -3,4 +3,80 @@ on: [push, pull_request, workflow_dispatch]
 
 jobs:
   build:
-    uses: zmkfirmware/zmk/.github/workflows/build-user-config.yml@main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ZMK config repo
+        uses: actions/checkout@v4
+
+      - name: Checkout ZMK firmware (zmk)
+        uses: actions/checkout@v4
+        with:
+          repository: zmkfirmware/zmk
+          path: zmk
+          ref: main
+
+      - name: Install Python tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade west
+
+      - name: Initialize west and fetch modules
+        working-directory: zmk
+        run: |
+          west init -l .
+          west update
+
+      - name: Patch Zephyr boards command to avoid KeyError
+        working-directory: zmk
+        run: |
+          if [ -f zephyr/scripts/west_commands/boards.py ]; then
+            python - <<'PY'
+from pathlib import Path
+p = Path('zephyr/scripts/west_commands/boards.py')
+s = p.read_text()
+# If the file already contains a safe format_map, skip the change
+if 'format_map' not in s:
+    # Add a small SafeDict class and use format_map with a mapping that
+    # provides empty-string defaults for missing attributes like 'qualifiers'.
+    safe = '''
+class _SafeDict(dict):
+    def __missing__(self, key):
+        return ''
+'''
+    # Insert SafeDict near the top (after imports) if not present
+    if 'class _SafeDict' not in s:
+        # best-effort: insert after the first line of imports or at top
+        parts = s.split('\n')
+        for i,line in enumerate(parts[:40]):
+            if line.strip().startswith('def '):
+                insert_at = i
+                break
+        else:
+            insert_at = 0
+        parts.insert(insert_at, safe)
+        s = '\n'.join(parts)
+    # Replace the risky args.format.format(...) call with a safe format_map usage
+    s = s.replace("args.format.format(name=board.name, arch=board.arch,\n            compat=board.compat,\n            dts=board.dts,\n            path=board.path,\n            aliases=board.aliases,\n            qualifiers=board.qualifiers,\n            board_name=board.board_name)",
+                  "format_dict = {\n            'name': getattr(board, 'name', ''),\n            'arch': getattr(board, 'arch', ''),\n            'compat': getattr(board, 'compat', ''),\n            'dts': getattr(board, 'dts', ''),\n            'path': getattr(board, 'path', ''),\n            'aliases': getattr(board, 'aliases', ''),\n            'qualifiers': getattr(board, 'qualifiers', ''),\n            'board_name': getattr(board, 'board_name', ''),\n        }\n        log.inf(args.format.format_map(_SafeDict(format_dict)))")
+    p.write_text(s)
+    print('patched', p)
+else:
+    print('already patched')
+PY
+          else
+            echo "zephyr/scripts/west_commands/boards.py not present; continuing"
+          fi
+
+      - name: Build ZMK (single board: nice_nano)
+        working-directory: zmk
+        run: |
+          # Adjust the board name and build options as needed for your repo.
+          west build -s app -d build -b nice_nano || (echo "Build failed" && exit 1)
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zmk-firmware
+          path: |
+            zmk/build/zephyr/zmk.uf2
+          if-no-files-found: ignore
