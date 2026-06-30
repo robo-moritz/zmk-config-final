@@ -1,3 +1,5 @@
+#include <dt-bindings/zmk/matrix_transform.h>
+
 /*
  * MyKeyboard - 46 Tasten, 4 Rows x 12 Cols (unterste Reihe teilweise leer)
  * diode-direction = col2row: Dioden sitzen zwischen Switch und Row-Leitung,
